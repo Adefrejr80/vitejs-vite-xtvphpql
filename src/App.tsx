@@ -401,8 +401,7 @@ export default function App() {
           <div className="brand-panel">
             <h1>Controle de Entrada e Saída</h1>
             <p>
-              Sistema privado para controle de acesso com cadastro de aluno e visitante,
-              lançamentos de entrada e saída e consulta de registros.
+              Sistema privado para controle de acesso com cadastro de aluno ESMPDFT
             </p>
           </div>
 
