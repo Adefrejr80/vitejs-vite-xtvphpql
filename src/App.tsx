@@ -57,20 +57,24 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      const currentUser = session?.user ?? null;
-      setUserId(currentUser?.id ?? null);
+        const currentUser = session?.user ?? null;
+        setUserId(currentUser?.id ?? null);
 
-      if (currentUser?.id) {
-        await carregarProfile(currentUser.id);
-        await carregarPessoas();
-        await carregarRegistros();
+        if (currentUser?.id) {
+          await carregarProfile(currentUser.id);
+          await carregarPessoas('');
+          await carregarRegistros();
+        }
+      } catch (error) {
+        console.error('Erro no init:', error);
+      } finally {
+        setSessionLoading(false);
       }
-
-      setSessionLoading(false);
     };
 
     init();
@@ -78,20 +82,25 @@ export default function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const currentUser = session?.user ?? null;
-      setUserId(currentUser?.id ?? null);
+      try {
+        const currentUser = session?.user ?? null;
+        setUserId(currentUser?.id ?? null);
 
-      if (currentUser?.id) {
-        await carregarProfile(currentUser.id);
-        await carregarPessoas();
-        await carregarRegistros();
-      } else {
-        setProfile(null);
-        setRegistros([]);
-        setPessoas([]);
+        if (currentUser?.id) {
+          await carregarProfile(currentUser.id);
+          await carregarPessoas('');
+          await carregarRegistros();
+        } else {
+          setProfile(null);
+          setRegistros([]);
+          setPessoas([]);
+          setPessoaSelecionada(null);
+        }
+      } catch (error) {
+        console.error('Erro no onAuthStateChange:', error);
+      } finally {
+        setSessionLoading(false);
       }
-
-      setSessionLoading(false);
     });
 
     return () => {
@@ -100,58 +109,71 @@ export default function App() {
   }, []);
 
   async function carregarProfile(uid: string) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, email, can_consult')
-      .eq('id', uid)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, can_consult')
+        .eq('id', uid)
+        .single();
 
-    if (error) {
-      console.error(error);
-      return;
+      if (error) {
+        console.error('Erro ao carregar profile:', error);
+        return;
+      }
+
+      setProfile(data);
+    } catch (error) {
+      console.error('Erro inesperado ao carregar profile:', error);
     }
-
-    setProfile(data);
   }
 
-  async function carregarPessoas() {
-    setLoadingPessoas(true);
+  async function carregarPessoas(termo = buscaPessoa) {
+    try {
+      setLoadingPessoas(true);
 
-    let query = supabase.from('pessoas').select('*').order('nome', { ascending: true });
+      let query = supabase.from('pessoas').select('*').order('nome', { ascending: true });
 
-    if (buscaPessoa.trim()) {
-      query = query.ilike('nome', `%${buscaPessoa.trim()}%`);
+      if (termo.trim()) {
+        query = query.ilike('nome', `%${termo.trim()}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Erro ao carregar pessoas:', error);
+        alert(`Erro ao carregar pessoas: ${error.message}`);
+        return;
+      }
+
+      setPessoas((data as Pessoa[]) || []);
+    } catch (error) {
+      console.error('Erro inesperado ao carregar pessoas:', error);
+    } finally {
+      setLoadingPessoas(false);
     }
-
-    const { data, error } = await query;
-    setLoadingPessoas(false);
-
-    if (error) {
-      console.error(error);
-      alert('Erro ao carregar pessoas.');
-      return;
-    }
-
-    setPessoas((data as Pessoa[]) || []);
   }
 
   async function carregarRegistros() {
-    setLoadingRegistros(true);
+    try {
+      setLoadingRegistros(true);
 
-    const { data, error } = await supabase
-      .from('registros')
-      .select('*')
-      .order('horario_entrada', { ascending: false });
+      const { data, error } = await supabase
+        .from('registros')
+        .select('*')
+        .order('horario_entrada', { ascending: false });
 
-    setLoadingRegistros(false);
+      if (error) {
+        console.error('Erro ao carregar registros:', error);
+        alert(`Erro ao carregar registros: ${error.message}`);
+        return;
+      }
 
-    if (error) {
-      console.error(error);
-      alert('Erro ao carregar registros.');
-      return;
+      setRegistros(data as Registro[]);
+    } catch (error) {
+      console.error('Erro inesperado ao carregar registros:', error);
+    } finally {
+      setLoadingRegistros(false);
     }
-
-    setRegistros(data as Registro[]);
   }
 
   async function cadastrar() {
@@ -206,14 +228,15 @@ export default function App() {
     });
 
     if (error) {
-      alert('Erro ao cadastrar pessoa.');
+      console.error('Erro ao cadastrar pessoa:', error);
+      alert(`Erro ao cadastrar pessoa: ${error.message}`);
       return;
     }
 
     alert('Pessoa cadastrada com sucesso.');
     setNomePessoa('');
     setTipoPessoa('Aluno');
-    await carregarPessoas();
+    await carregarPessoas('');
   }
 
   function limparFormularioLancamento() {
@@ -241,24 +264,26 @@ export default function App() {
       return;
     }
 
-    const crachaNormalizado = numeroCracha.trim() ? numeroCracha.trim().toUpperCase() : null;
+    const crachaNormalizado = numeroCracha.trim()
+      ? numeroCracha.trim().toUpperCase()
+      : null;
 
     if (crachaNormalizado) {
-      const { data: abertoPorCracha, error: erroBusca } = await supabase
+      const { data: abertoNoDia, error: erroBusca } = await supabase
         .from('registros')
-        .select('*')
+        .select('id, numero_cracha, horario_saida')
         .eq('numero_cracha', crachaNormalizado)
         .is('horario_saida', null)
         .order('horario_entrada', { ascending: false })
         .limit(1);
 
-        if (erroBusca) {
-          console.error('erroBusca:', erroBusca);
-          alert(`Erro ao verificar registro em aberto: ${erroBusca.message}`);
-          return;
-        }
+      if (erroBusca) {
+        console.error('erroBusca:', erroBusca);
+        alert(`Erro ao verificar registro em aberto: ${erroBusca.message}`);
+        return;
+      }
 
-      if (abertoPorCracha && abertoPorCracha.length > 0) {
+      if (abertoNoDia && abertoNoDia.length > 0) {
         alert('Já existe uma entrada em aberto para esse crachá.');
         return;
       }
@@ -276,8 +301,8 @@ export default function App() {
     });
 
     if (error) {
-      console.error(error);
-      alert('Erro ao salvar entrada.');
+      console.error('Erro ao salvar entrada:', error);
+      alert(`Erro ao salvar entrada: ${error.message}`);
       return;
     }
 
@@ -304,7 +329,9 @@ export default function App() {
       .order('horario_entrada', { ascending: false })
       .limit(1);
 
-    const crachaNormalizado = numeroCracha.trim() ? numeroCracha.trim().toUpperCase() : '';
+    const crachaNormalizado = numeroCracha.trim()
+      ? numeroCracha.trim().toUpperCase()
+      : '';
 
     if (crachaNormalizado) {
       query = query.eq('numero_cracha', crachaNormalizado);
@@ -312,11 +339,11 @@ export default function App() {
       query = query.eq('pessoa_id', pessoaSelecionada.id);
     }
 
-    const { data, error } = await query;
+    const { data, error: erroAberto } = await query;
 
-    if (error) {
-      console.error(error);
-      alert('Erro ao localizar registro em aberto.');
+    if (erroAberto) {
+      console.error('erroAberto:', erroAberto);
+      alert(`Erro ao localizar registro em aberto: ${erroAberto.message}`);
       return;
     }
 
@@ -335,8 +362,8 @@ export default function App() {
       .eq('id', registroAberto.id);
 
     if (erroUpdate) {
-      console.error(erroUpdate);
-      alert('Erro ao registrar saída.');
+      console.error('Erro ao registrar saída:', erroUpdate);
+      alert(`Erro ao registrar saída: ${erroUpdate.message}`);
       return;
     }
 
@@ -495,7 +522,7 @@ export default function App() {
           </div>
 
           <div className="actions-row">
-            <button className="btn-primary" onClick={carregarPessoas}>
+            <button className="btn-primary" onClick={() => carregarPessoas()}>
               Buscar pessoa
             </button>
           </div>
