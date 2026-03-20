@@ -61,14 +61,16 @@ export default function App() {
         const {
           data: { session },
         } = await supabase.auth.getSession();
-
+  
         const currentUser = session?.user ?? null;
         setUserId(currentUser?.id ?? null);
-
+  
         if (currentUser?.id) {
           await carregarProfile(currentUser.id);
-          await carregarPessoas('');
-          await carregarRegistros();
+  
+          // carrega em paralelo, sem travar a tela inteira
+          carregarPessoas('');
+          carregarRegistros();
         }
       } catch (error) {
         console.error('Erro no init:', error);
@@ -76,20 +78,21 @@ export default function App() {
         setSessionLoading(false);
       }
     };
-
+  
     init();
-
+  
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
         const currentUser = session?.user ?? null;
         setUserId(currentUser?.id ?? null);
-
+  
         if (currentUser?.id) {
           await carregarProfile(currentUser.id);
-          await carregarPessoas('');
-          await carregarRegistros();
+  
+          carregarPessoas('');
+          carregarRegistros();
         } else {
           setProfile(null);
           setRegistros([]);
@@ -102,7 +105,7 @@ export default function App() {
         setSessionLoading(false);
       }
     });
-
+  
     return () => {
       subscription.unsubscribe();
     };
