@@ -252,10 +252,11 @@ export default function App() {
         .order('horario_entrada', { ascending: false })
         .limit(1);
 
-      if (erroBusca) {
-        alert('Erro ao verificar registro em aberto.');
-        return;
-      }
+        if (erroBusca) {
+          console.error('erroBusca:', erroBusca);
+          alert(`Erro ao verificar registro em aberto: ${erroBusca.message}`);
+          return;
+        }
 
       if (abertoPorCracha && abertoPorCracha.length > 0) {
         alert('Já existe uma entrada em aberto para esse crachá.');
