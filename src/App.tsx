@@ -68,7 +68,7 @@ export default function App() {
         if (currentUser?.id) {
           await carregarProfile(currentUser.id);
   
-          // carrega em paralelo, sem travar a tela inteira
+          // carrega em paralelo sem travar a tela inteira
           carregarPessoas('');
           carregarRegistros();
         }
@@ -90,7 +90,6 @@ export default function App() {
   
         if (currentUser?.id) {
           await carregarProfile(currentUser.id);
-  
           carregarPessoas('');
           carregarRegistros();
         } else {
@@ -111,43 +110,26 @@ export default function App() {
     };
   }, []);
 
-  async function carregarProfile(uid: string) {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, email, can_consult')
-        .eq('id', uid)
-        .single();
-
-      if (error) {
-        console.error('Erro ao carregar profile:', error);
-        return;
-      }
-
-      setProfile(data);
-    } catch (error) {
-      console.error('Erro inesperado ao carregar profile:', error);
-    }
-  }
-
   async function carregarPessoas(termo = buscaPessoa) {
     try {
       setLoadingPessoas(true);
-
-      let query = supabase.from('pessoas').select('*').order('nome', { ascending: true });
-
+  
+      let query = supabase
+        .from('pessoas')
+        .select('*')
+        .order('nome', { ascending: true });
+  
       if (termo.trim()) {
         query = query.ilike('nome', `%${termo.trim()}%`);
       }
-
+  
       const { data, error } = await query;
-
+  
       if (error) {
         console.error('Erro ao carregar pessoas:', error);
-        alert(`Erro ao carregar pessoas: ${error.message}`);
         return;
       }
-
+  
       setPessoas((data as Pessoa[]) || []);
     } catch (error) {
       console.error('Erro inesperado ao carregar pessoas:', error);
@@ -155,22 +137,7 @@ export default function App() {
       setLoadingPessoas(false);
     }
   }
-
-  async function carregarRegistros() {
-    try {
-      setLoadingRegistros(true);
-
-      const { data, error } = await supabase
-        .from('registros')
-        .select('*')
-        .order('horario_entrada', { ascending: false });
-
-      if (error) {
-        console.error('Erro ao carregar registros:', error);
-        alert(`Erro ao carregar registros: ${error.message}`);
-        return;
-      }
-
+  
       setRegistros(data as Registro[]);
     } catch (error) {
       console.error('Erro inesperado ao carregar registros:', error);
