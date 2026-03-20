@@ -138,6 +138,21 @@ export default function App() {
     }
   }
   
+  
+  async function carregarRegistros() {
+    try {
+      setLoadingRegistros(true);
+  
+      const { data, error } = await supabase
+        .from('registros')
+        .select('*')
+        .order('horario_entrada', { ascending: false });
+  
+      if (error) {
+        console.error('Erro ao carregar registros:', error);
+        return;
+      }
+  
       setRegistros(data as Registro[]);
     } catch (error) {
       console.error('Erro inesperado ao carregar registros:', error);
