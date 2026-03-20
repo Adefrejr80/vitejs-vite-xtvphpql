@@ -15,7 +15,7 @@ type Registro = {
   numero_cracha: string | null;
   nome: string;
   tipo_pessoa: string | null;
-  box_acautelou: string;
+  acautelou: string;
   horario_entrada: string;
   horario_saida: string | null;
   created_at: string;
