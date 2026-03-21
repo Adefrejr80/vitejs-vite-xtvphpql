@@ -366,9 +366,18 @@ export default function App() {
       return;
     }
 
-    console.log('Saída atualizada:', data);
+    if (!data || data.length === 0) {
+      alert('Nenhum registro foi atualizado.');
+      return;
+    }
+
+    setRegistros((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, horario_saida: agora } : item
+      )
+    );
+
     alert('Saída registrada com sucesso.');
-    await carregarRegistros();
   }
 
   function localDateValue(valor: string) {
