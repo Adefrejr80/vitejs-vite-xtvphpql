@@ -5,7 +5,7 @@ import './index.css';
 type UserProfile = {
   id: string;
   email: string;
-  can_consult: boolean; // quem já tinha acesso à consulta agora também cadastra usuários
+  can_consult: boolean;
 };
 
 type Registro = {
@@ -40,9 +40,14 @@ export default function App() {
   const [criandoUsuario, setCriandoUsuario] = useState(false);
 
   const [numeroCracha, setNumeroCracha] = useState('');
-  const [buscaNome, setBuscaNome] = useState('');
-  const [buscaData, setBuscaData] = useState('');
-  const [buscaHora, setBuscaHora] = useState('');
+
+  const [buscaNomeAberto, setBuscaNomeAberto] = useState('');
+  const [buscaCrachaAberto, setBuscaCrachaAberto] = useState('');
+  const [buscaDataAberto, setBuscaDataAberto] = useState('');
+
+  const [buscaNomeHistorico, setBuscaNomeHistorico] = useState('');
+  const [buscaDataHistorico, setBuscaDataHistorico] = useState('');
+  const [buscaHoraHistorico, setBuscaHoraHistorico] = useState('');
 
   const [registros, setRegistros] = useState<Registro[]>([]);
   const [loadingRegistros, setLoadingRegistros] = useState(false);
@@ -64,7 +69,7 @@ export default function App() {
         setUserId(currentUser?.id ?? null);
 
         if (currentUser?.id) {
-          await carregarProfile(currentUser.id);
+          carregarProfile(currentUser.id);
           carregarPessoas('');
           carregarRegistros();
         }
@@ -79,13 +84,13 @@ export default function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       try {
         const currentUser = session?.user ?? null;
         setUserId(currentUser?.id ?? null);
 
         if (currentUser?.id) {
-          await carregarProfile(currentUser.id);
+          carregarProfile(currentUser.id);
           carregarPessoas('');
           carregarRegistros();
         } else {
@@ -349,10 +354,11 @@ export default function App() {
   async function registrarSaida(id: number) {
     const agora = new Date().toISOString();
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('registros')
       .update({ horario_saida: agora })
-      .eq('id', id);
+      .eq('id', id)
+      .select();
 
     if (error) {
       console.error('Erro ao registrar saída:', error);
@@ -360,6 +366,8 @@ export default function App() {
       return;
     }
 
+    console.log('Saída atualizada:', data);
+    alert('Saída registrada com sucesso.');
     await carregarRegistros();
   }
 
@@ -379,22 +387,46 @@ export default function App() {
     return `${hh}:${mm}`;
   }
 
-  const registrosFiltrados = useMemo(() => {
+  const registrosAbertosFiltrados = useMemo(() => {
+    return registros.filter((item) => {
+      if (item.horario_saida) return false;
+
+      const bateNome =
+        !buscaNomeAberto ||
+        item.nome.toLowerCase().includes(buscaNomeAberto.trim().toLowerCase());
+
+      const bateCracha =
+        !buscaCrachaAberto ||
+        (item.numero_cracha || '')
+          .toLowerCase()
+          .includes(buscaCrachaAberto.trim().toLowerCase());
+
+      const dataEntrada = localDateValue(item.horario_entrada);
+      const bateData = !buscaDataAberto || dataEntrada === buscaDataAberto;
+
+      return bateNome && bateCracha && bateData;
+    });
+  }, [registros, buscaNomeAberto, buscaCrachaAberto, buscaDataAberto]);
+
+  const registrosFiltradosHistorico = useMemo(() => {
     return registros.filter((item) => {
       const bateNome =
-        !buscaNome || item.nome.toLowerCase().includes(buscaNome.trim().toLowerCase());
+        !buscaNomeHistorico ||
+        item.nome.toLowerCase().includes(buscaNomeHistorico.trim().toLowerCase());
 
       const dataEntradaLocal = localDateValue(item.horario_entrada);
-      const bateData = !buscaData || dataEntradaLocal === buscaData;
+      const bateData = !buscaDataHistorico || dataEntradaLocal === buscaDataHistorico;
 
       const horaEntrada = localHourValue(item.horario_entrada);
       const horaSaida = localHourValue(item.horario_saida);
       const bateHora =
-        !buscaHora || horaEntrada.includes(buscaHora) || horaSaida.includes(buscaHora);
+        !buscaHoraHistorico ||
+        horaEntrada.includes(buscaHoraHistorico) ||
+        horaSaida.includes(buscaHoraHistorico);
 
       return bateNome && bateData && bateHora;
     });
-  }, [registros, buscaNome, buscaData, buscaHora]);
+  }, [registros, buscaNomeHistorico, buscaDataHistorico, buscaHoraHistorico]);
 
   function imprimirOuSalvarPDF() {
     window.print();
@@ -632,7 +664,7 @@ export default function App() {
         </section>
 
         <section className="card">
-          <h2>Consulta</h2>
+          <h2>Consulta de registros em aberto</h2>
 
           <div className="filters-grid">
             <div className="field">
@@ -640,8 +672,18 @@ export default function App() {
               <input
                 type="text"
                 placeholder="Digite o nome"
-                value={buscaNome}
-                onChange={(e) => setBuscaNome(e.target.value)}
+                value={buscaNomeAberto}
+                onChange={(e) => setBuscaNomeAberto(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>Buscar por número do crachá</label>
+              <input
+                type="text"
+                placeholder="Digite o número do crachá"
+                value={buscaCrachaAberto}
+                onChange={(e) => setBuscaCrachaAberto(e.target.value)}
               />
             </div>
 
@@ -649,35 +691,20 @@ export default function App() {
               <label>Buscar por data</label>
               <input
                 type="date"
-                value={buscaData}
-                onChange={(e) => setBuscaData(e.target.value)}
+                value={buscaDataAberto}
+                onChange={(e) => setBuscaDataAberto(e.target.value)}
               />
             </div>
-
-            <div className="field">
-              <label>Buscar por hora</label>
-              <input
-                type="time"
-                value={buscaHora}
-                onChange={(e) => setBuscaHora(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="actions-row">
-            <button className="btn-secondary" onClick={imprimirOuSalvarPDF}>
-              Imprimir / Salvar em PDF
-            </button>
           </div>
         </section>
 
         <section className="card" id="secao-registros">
-          <h2>Registros</h2>
+          <h2>Registros em aberto</h2>
 
           {loadingRegistros ? (
             <p>Carregando registros...</p>
-          ) : registrosFiltrados.length === 0 ? (
-            <p className="empty">Nenhum registro encontrado.</p>
+          ) : registrosAbertosFiltrados.length === 0 ? (
+            <p className="empty">Nenhum registro em aberto.</p>
           ) : (
             <div className="table-wrapper">
               <table>
@@ -692,7 +719,92 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {registrosFiltrados.map((item) => (
+                  {registrosAbertosFiltrados.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.numero_cracha || '-'}</td>
+                      <td>{item.nome}</td>
+                      <td>{formatarDataHora(item.horario_entrada)}</td>
+                      <td>-</td>
+                      <td>
+                        <span className="badge open">Em aberto</span>
+                      </td>
+                      <td>
+                        <button
+                          className="btn-primary"
+                          onClick={() => registrarSaida(item.id)}
+                        >
+                          Registrar saída
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="card">
+          <h2>Consulta do histórico</h2>
+
+          <div className="filters-grid">
+            <div className="field">
+              <label>Buscar por nome</label>
+              <input
+                type="text"
+                placeholder="Digite o nome"
+                value={buscaNomeHistorico}
+                onChange={(e) => setBuscaNomeHistorico(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>Buscar por data</label>
+              <input
+                type="date"
+                value={buscaDataHistorico}
+                onChange={(e) => setBuscaDataHistorico(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>Buscar por hora</label>
+              <input
+                type="time"
+                value={buscaHoraHistorico}
+                onChange={(e) => setBuscaHoraHistorico(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="actions-row">
+            <button className="btn-secondary" onClick={imprimirOuSalvarPDF}>
+              Imprimir / Salvar em PDF
+            </button>
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>Histórico de registros</h2>
+
+          {loadingRegistros ? (
+            <p>Carregando registros...</p>
+          ) : registrosFiltradosHistorico.length === 0 ? (
+            <p className="empty">Nenhum registro encontrado.</p>
+          ) : (
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Crachá</th>
+                    <th>Nome</th>
+                    <th>Entrada</th>
+                    <th>Saída</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {registrosFiltradosHistorico.map((item) => (
                     <tr key={item.id}>
                       <td>{item.numero_cracha || '-'}</td>
                       <td>{item.nome}</td>
@@ -705,18 +817,6 @@ export default function App() {
                           <span className="badge closed">Fechado</span>
                         ) : (
                           <span className="badge open">Em aberto</span>
-                        )}
-                      </td>
-                      <td>
-                        {!item.horario_saida ? (
-                          <button
-                            className="btn-primary"
-                            onClick={() => registrarSaida(item.id)}
-                          >
-                            Registrar saída
-                          </button>
-                        ) : (
-                          '-'
                         )}
                       </td>
                     </tr>
