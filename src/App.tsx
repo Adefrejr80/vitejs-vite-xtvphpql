@@ -5,7 +5,7 @@ import './index.css';
 type UserProfile = {
   id: string;
   email: string;
-  can_consult: boolean;
+  can_consult: boolean; // quem já tinha acesso à consulta agora também cadastra usuários
 };
 
 type Registro = {
@@ -14,8 +14,7 @@ type Registro = {
   pessoa_id: string | null;
   numero_cracha: string | null;
   nome: string;
-  tipo_pessoa: string | null;
-  acautelou: string;
+  tipo_pessoa: 'Aluno' | 'Visitante' | null;
   horario_entrada: string;
   horario_saida: string | null;
   created_at: string;
@@ -33,23 +32,22 @@ export default function App() {
   const [userId, setUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
-  const [modoAuth, setModoAuth] = useState<'login' | 'cadastro'>('login');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
 
-  const [numeroCracha, setNumeroCracha] = useState('');
-  const [boxAcautelou, setBoxAcautelou] = useState('');
-  const [horarioEntrada, setHorarioEntrada] = useState('');
-  const [horarioSaida, setHorarioSaida] = useState('');
+  const [novoUsuarioEmail, setNovoUsuarioEmail] = useState('');
+  const [novoUsuarioSenha, setNovoUsuarioSenha] = useState('');
+  const [criandoUsuario, setCriandoUsuario] = useState(false);
 
+  const [numeroCracha, setNumeroCracha] = useState('');
   const [buscaNome, setBuscaNome] = useState('');
   const [buscaData, setBuscaData] = useState('');
+  const [buscaHora, setBuscaHora] = useState('');
 
   const [registros, setRegistros] = useState<Registro[]>([]);
   const [loadingRegistros, setLoadingRegistros] = useState(false);
 
   const [nomePessoa, setNomePessoa] = useState('');
-  const [tipoPessoa, setTipoPessoa] = useState<'Aluno' | 'Visitante'>('Aluno');
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [buscaPessoa, setBuscaPessoa] = useState('');
   const [pessoaSelecionada, setPessoaSelecionada] = useState<Pessoa | null>(null);
@@ -61,14 +59,12 @@ export default function App() {
         const {
           data: { session },
         } = await supabase.auth.getSession();
-  
+
         const currentUser = session?.user ?? null;
         setUserId(currentUser?.id ?? null);
-  
+
         if (currentUser?.id) {
           await carregarProfile(currentUser.id);
-  
-          // carrega em paralelo sem travar a tela inteira
           carregarPessoas('');
           carregarRegistros();
         }
@@ -78,16 +74,16 @@ export default function App() {
         setSessionLoading(false);
       }
     };
-  
+
     init();
-  
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
         const currentUser = session?.user ?? null;
         setUserId(currentUser?.id ?? null);
-  
+
         if (currentUser?.id) {
           await carregarProfile(currentUser.id);
           carregarPessoas('');
@@ -104,32 +100,56 @@ export default function App() {
         setSessionLoading(false);
       }
     });
-  
+
     return () => {
       subscription.unsubscribe();
     };
   }, []);
 
+  async function carregarProfile(uid: string) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, can_consult')
+        .eq('id', uid)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Erro ao carregar profile:', error);
+        return null;
+      }
+
+      if (!data) {
+        setProfile(null);
+        return null;
+      }
+
+      setProfile(data as UserProfile);
+      return data;
+    } catch (error) {
+      console.error('Erro inesperado ao carregar profile:', error);
+      return null;
+    }
+  }
+
   async function carregarPessoas(termo = buscaPessoa) {
     try {
       setLoadingPessoas(true);
-  
-      let query = supabase
-        .from('pessoas')
-        .select('*')
-        .order('nome', { ascending: true });
-  
+
+      let query = supabase.from('pessoas').select('*').order('nome', { ascending: true });
+
       if (termo.trim()) {
         query = query.ilike('nome', `%${termo.trim()}%`);
       }
-  
+
       const { data, error } = await query;
-  
+
       if (error) {
         console.error('Erro ao carregar pessoas:', error);
+        alert(`Erro ao carregar pessoas: ${error.message}`);
         return;
       }
-  
+
       setPessoas((data as Pessoa[]) || []);
     } catch (error) {
       console.error('Erro inesperado ao carregar pessoas:', error);
@@ -137,48 +157,28 @@ export default function App() {
       setLoadingPessoas(false);
     }
   }
-  
-  
+
   async function carregarRegistros() {
     try {
       setLoadingRegistros(true);
-  
+
       const { data, error } = await supabase
         .from('registros')
         .select('*')
         .order('horario_entrada', { ascending: false });
-  
+
       if (error) {
         console.error('Erro ao carregar registros:', error);
+        alert(`Erro ao carregar registros: ${error.message}`);
         return;
       }
-  
+
       setRegistros(data as Registro[]);
     } catch (error) {
       console.error('Erro inesperado ao carregar registros:', error);
     } finally {
       setLoadingRegistros(false);
     }
-  }
-
-  async function cadastrar() {
-    if (!email || !senha) {
-      alert('Preencha e-mail e senha.');
-      return;
-    }
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password: senha,
-    });
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    alert('Cadastro realizado. Agora faça login.');
-    setModoAuth('login');
   }
 
   async function login() {
@@ -201,15 +201,15 @@ export default function App() {
     await supabase.auth.signOut();
   }
 
-  async function cadastrarPessoa() {
+  async function cadastrarPessoa(tipo: 'Aluno' | 'Visitante') {
     if (!nomePessoa.trim()) {
-      alert('Informe o nome do aluno ou visitante.');
+      alert('Informe o nome.');
       return;
     }
 
     const { error } = await supabase.from('pessoas').insert({
       nome: nomePessoa.trim(),
-      tipo: tipoPessoa,
+      tipo,
     });
 
     if (error) {
@@ -218,22 +218,74 @@ export default function App() {
       return;
     }
 
-    alert('Pessoa cadastrada com sucesso.');
+    alert(`${tipo} cadastrado com sucesso.`);
     setNomePessoa('');
-    setTipoPessoa('Aluno');
     await carregarPessoas('');
+  }
+
+  async function cadastrarUsuarioInterno() {
+    if (!profile?.can_consult) {
+      alert('Seu usuário não possui permissão para cadastrar usuários.');
+      return;
+    }
+
+    if (!novoUsuarioEmail || !novoUsuarioSenha) {
+      alert('Preencha e-mail e senha do novo usuário.');
+      return;
+    }
+
+    try {
+      setCriandoUsuario(true);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const accessToken = session?.access_token;
+      if (!accessToken) {
+        alert('Sessão inválida.');
+        return;
+      }
+
+      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`;
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          email: novoUsuarioEmail,
+          password: novoUsuarioSenha,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result.error || 'Erro ao cadastrar usuário.');
+        return;
+      }
+
+      alert('Usuário cadastrado com sucesso.');
+      setNovoUsuarioEmail('');
+      setNovoUsuarioSenha('');
+    } catch (error) {
+      console.error('Erro ao cadastrar usuário interno:', error);
+      alert('Erro ao cadastrar usuário.');
+    } finally {
+      setCriandoUsuario(false);
+    }
   }
 
   function limparFormularioLancamento() {
     setNumeroCracha('');
-    setBoxAcautelou('');
-    setHorarioEntrada('');
-    setHorarioSaida('');
     setPessoaSelecionada(null);
     setBuscaPessoa('');
   }
 
-  async function salvarEntrada() {
+  async function registrarEntrada() {
     if (!userId) {
       alert('Usuário não autenticado.');
       return;
@@ -244,35 +296,33 @@ export default function App() {
       return;
     }
 
-    if (!boxAcautelou || !horarioEntrada) {
-      alert('Preencha box acautelou e horário de entrada.');
+    if (!numeroCracha.trim()) {
+      alert('Informe o número do crachá.');
       return;
     }
 
-    const crachaNormalizado = numeroCracha.trim()
-      ? numeroCracha.trim().toUpperCase()
-      : null;
+    const crachaNormalizado = numeroCracha.trim().toUpperCase();
 
-    if (crachaNormalizado) {
-      const { data: abertoNoDia, error: erroBusca } = await supabase
-        .from('registros')
-        .select('id, numero_cracha, horario_saida')
-        .eq('numero_cracha', crachaNormalizado)
-        .is('horario_saida', null)
-        .order('horario_entrada', { ascending: false })
-        .limit(1);
+    const { data: abertoNoDia, error: erroBusca } = await supabase
+      .from('registros')
+      .select('id, numero_cracha, horario_saida')
+      .eq('numero_cracha', crachaNormalizado)
+      .is('horario_saida', null)
+      .order('horario_entrada', { ascending: false })
+      .limit(1);
 
-      if (erroBusca) {
-        console.error('erroBusca:', erroBusca);
-        alert(`Erro ao verificar registro em aberto: ${erroBusca.message}`);
-        return;
-      }
-
-      if (abertoNoDia && abertoNoDia.length > 0) {
-        alert('Já existe uma entrada em aberto para esse crachá.');
-        return;
-      }
+    if (erroBusca) {
+      console.error('erroBusca:', erroBusca);
+      alert(`Erro ao verificar registro em aberto: ${erroBusca.message}`);
+      return;
     }
+
+    if (abertoNoDia && abertoNoDia.length > 0) {
+      alert('Já existe uma entrada em aberto para esse crachá.');
+      return;
+    }
+
+    const agora = new Date().toISOString();
 
     const { error } = await supabase.from('registros').insert({
       user_id: userId,
@@ -280,8 +330,7 @@ export default function App() {
       numero_cracha: crachaNormalizado,
       nome: pessoaSelecionada.nome,
       tipo_pessoa: pessoaSelecionada.tipo,
-      box_acautelou: boxAcautelou,
-      horario_entrada: horarioEntrada,
+      horario_entrada: agora,
       horario_saida: null,
     });
 
@@ -294,67 +343,40 @@ export default function App() {
     alert('Entrada registrada com sucesso.');
     limparFormularioLancamento();
     await carregarRegistros();
+    document.getElementById('secao-registros')?.scrollIntoView({ behavior: 'smooth' });
   }
 
-  async function lancarSaida() {
-    if (!horarioSaida) {
-      alert('Informe o horário de saída.');
-      return;
-    }
+  async function registrarSaida(id: number) {
+    const agora = new Date().toISOString();
 
-    if (!numeroCracha.trim() && !pessoaSelecionada) {
-      alert('Informe o crachá ou selecione a pessoa para lançar a saída.');
-      return;
-    }
-
-    let query = supabase
+    const { error } = await supabase
       .from('registros')
-      .select('*')
-      .is('horario_saida', null)
-      .order('horario_entrada', { ascending: false })
-      .limit(1);
+      .update({ horario_saida: agora })
+      .eq('id', id);
 
-    const crachaNormalizado = numeroCracha.trim()
-      ? numeroCracha.trim().toUpperCase()
-      : '';
-
-    if (crachaNormalizado) {
-      query = query.eq('numero_cracha', crachaNormalizado);
-    } else if (pessoaSelecionada) {
-      query = query.eq('pessoa_id', pessoaSelecionada.id);
-    }
-
-    const { data, error: erroAberto } = await query;
-
-    if (erroAberto) {
-      console.error('erroAberto:', erroAberto);
-      alert(`Erro ao localizar registro em aberto: ${erroAberto.message}`);
+    if (error) {
+      console.error('Erro ao registrar saída:', error);
+      alert(`Erro ao registrar saída: ${error.message}`);
       return;
     }
 
-    if (!data || data.length === 0) {
-      alert('Não existe registro em aberto para esse crachá ou pessoa.');
-      return;
-    }
-
-    const registroAberto = data[0] as Registro;
-
-    const { error: erroUpdate } = await supabase
-      .from('registros')
-      .update({
-        horario_saida: horarioSaida,
-      })
-      .eq('id', registroAberto.id);
-
-    if (erroUpdate) {
-      console.error('Erro ao registrar saída:', erroUpdate);
-      alert(`Erro ao registrar saída: ${erroUpdate.message}`);
-      return;
-    }
-
-    alert('Saída registrada com sucesso.');
-    limparFormularioLancamento();
     await carregarRegistros();
+  }
+
+  function localDateValue(valor: string) {
+    const d = new Date(valor);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function localHourValue(valor: string | null) {
+    if (!valor) return '';
+    const d = new Date(valor);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
   }
 
   const registrosFiltrados = useMemo(() => {
@@ -362,18 +384,28 @@ export default function App() {
       const bateNome =
         !buscaNome || item.nome.toLowerCase().includes(buscaNome.trim().toLowerCase());
 
-      const dataEntrada = item.horario_entrada?.slice(0, 10);
-      const bateData = !buscaData || dataEntrada === buscaData;
+      const dataEntradaLocal = localDateValue(item.horario_entrada);
+      const bateData = !buscaData || dataEntradaLocal === buscaData;
 
-      return bateNome && bateData;
+      const horaEntrada = localHourValue(item.horario_entrada);
+      const horaSaida = localHourValue(item.horario_saida);
+      const bateHora =
+        !buscaHora || horaEntrada.includes(buscaHora) || horaSaida.includes(buscaHora);
+
+      return bateNome && bateData && bateHora;
     });
-  }, [registros, buscaNome, buscaData]);
+  }, [registros, buscaNome, buscaData, buscaHora]);
+
+  function imprimirOuSalvarPDF() {
+    window.print();
+  }
 
   if (sessionLoading) {
     return (
       <div className="page center-screen">
         <div className="card auth-card">
-          <h1>Carregando...</h1>
+          <h1>Carregando sistema...</h1>
+          <p className="empty">Aguarde alguns segundos.</p>
         </div>
       </div>
     );
@@ -385,13 +417,11 @@ export default function App() {
         <div className="auth-wrapper">
           <div className="brand-panel">
             <h1>Controle de Entrada e Saída</h1>
-            <p>
-              Sistema privado para controle de acesso com cadastro de aluno ESMPDFT
-            </p>
+            <p>Sistema privado para acesso interno.</p>
           </div>
 
           <div className="card auth-card">
-            <h2>{modoAuth === 'login' ? 'Entrar' : 'Cadastrar'}</h2>
+            <h2>Entrar</h2>
 
             <div className="field">
               <label>E-mail</label>
@@ -414,31 +444,17 @@ export default function App() {
             </div>
 
             <div className="auth-actions">
-              {modoAuth === 'login' ? (
-                <>
-                  <button className="btn-primary" onClick={login}>
-                    Entrar
-                  </button>
-                  <button className="btn-secondary" onClick={() => setModoAuth('cadastro')}>
-                    Criar conta
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button className="btn-primary" onClick={cadastrar}>
-                    Cadastrar
-                  </button>
-                  <button className="btn-secondary" onClick={() => setModoAuth('login')}>
-                    Voltar ao login
-                  </button>
-                </>
-              )}
+              <button className="btn-primary" onClick={login}>
+                Entrar
+              </button>
             </div>
           </div>
         </div>
       </div>
     );
   }
+
+  const podeCadastrarUsuarios = !!profile?.can_consult;
 
   return (
     <div className="page app-bg">
@@ -447,8 +463,8 @@ export default function App() {
           <div>
             <h1>Controle de Entrada e Saída</h1>
             <p className="subtitle">
-              Usuário: {profile?.email || 'sem e-mail'}{' '}
-              {profile?.can_consult ? '• Perfil com consulta' : ''}
+              Usuário: {profile?.email || 'sem e-mail'} • Perfil:{' '}
+              {podeCadastrarUsuarios ? 'gerente' : 'usuário'}
             </p>
           </div>
 
@@ -457,8 +473,46 @@ export default function App() {
           </button>
         </header>
 
+        {podeCadastrarUsuarios && (
+          <section className="card">
+            <h2>Cadastro interno de usuários</h2>
+
+            <div className="form-grid">
+              <div className="field">
+                <label>E-mail do usuário</label>
+                <input
+                  type="email"
+                  placeholder="novo.usuario@dominio.com"
+                  value={novoUsuarioEmail}
+                  onChange={(e) => setNovoUsuarioEmail(e.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <label>Senha provisória</label>
+                <input
+                  type="password"
+                  placeholder="Digite a senha provisória"
+                  value={novoUsuarioSenha}
+                  onChange={(e) => setNovoUsuarioSenha(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="actions-row">
+              <button
+                className="btn-primary"
+                onClick={cadastrarUsuarioInterno}
+                disabled={criandoUsuario}
+              >
+                {criandoUsuario ? 'Cadastrando...' : 'Cadastrar usuário'}
+              </button>
+            </div>
+          </section>
+        )}
+
         <section className="card">
-          <h2>Cadastro de Aluno / Visitante</h2>
+          <h2>Cadastro de aluno / visitante</h2>
 
           <div className="form-grid">
             <div className="field">
@@ -470,28 +524,20 @@ export default function App() {
                 onChange={(e) => setNomePessoa(e.target.value)}
               />
             </div>
-
-            <div className="field">
-              <label>Tipo</label>
-              <select
-                value={tipoPessoa}
-                onChange={(e) => setTipoPessoa(e.target.value as 'Aluno' | 'Visitante')}
-              >
-                <option value="Aluno">Aluno</option>
-                <option value="Visitante">Visitante</option>
-              </select>
-            </div>
           </div>
 
           <div className="actions-row">
-            <button className="btn-primary" onClick={cadastrarPessoa}>
-              Cadastrar pessoa
+            <button className="btn-primary" onClick={() => cadastrarPessoa('Aluno')}>
+              Cadastrar aluno
+            </button>
+            <button className="btn-secondary" onClick={() => cadastrarPessoa('Visitante')}>
+              Cadastrar visitante
             </button>
           </div>
         </section>
 
         <section className="card">
-          <h2>Selecionar Aluno / Visitante</h2>
+          <h2>Selecionar aluno / visitante</h2>
 
           <div className="filters-grid">
             <div className="field">
@@ -555,56 +601,29 @@ export default function App() {
         </section>
 
         <section className="card">
-          <h2>Lançamento</h2>
+          <h2>Lançamento de entrada</h2>
+
+          {pessoaSelecionada && (
+            <p style={{ marginBottom: 16 }}>
+              Selecionado: <strong>{pessoaSelecionada.nome}</strong> ({pessoaSelecionada.tipo})
+            </p>
+          )}
 
           <div className="form-grid">
             <div className="field">
               <label>N° do Crachá</label>
               <input
                 type="text"
-                placeholder="Opcional"
+                placeholder="Digite o número do crachá"
                 value={numeroCracha}
                 onChange={(e) => setNumeroCracha(e.target.value.toUpperCase())}
               />
-              <small>O crachá pode ficar em branco.</small>
-            </div>
-
-            <div className="field">
-              <label>Box Acautelou</label>
-              <input
-                type="text"
-                placeholder="Ex.: Box 03"
-                value={boxAcautelou}
-                onChange={(e) => setBoxAcautelou(e.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label>Horário de entrada</label>
-              <input
-                type="datetime-local"
-                value={horarioEntrada}
-                onChange={(e) => setHorarioEntrada(e.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label>Horário de saída</label>
-              <input
-                type="datetime-local"
-                value={horarioSaida}
-                onChange={(e) => setHorarioSaida(e.target.value)}
-              />
-              <small>Preencha somente quando for lançar a saída.</small>
             </div>
           </div>
 
           <div className="actions-row">
-            <button className="btn-primary" onClick={salvarEntrada}>
-              Salvar entrada
-            </button>
-            <button className="btn-primary" onClick={lancarSaida}>
-              Lançar saída
+            <button className="btn-primary" onClick={registrarEntrada}>
+              Registrar entrada
             </button>
             <button className="btn-secondary" onClick={limparFormularioLancamento}>
               Limpar
@@ -612,88 +631,101 @@ export default function App() {
           </div>
         </section>
 
-        {profile?.can_consult ? (
-          <>
-            <section className="card">
-              <h2>Consulta</h2>
+        <section className="card">
+          <h2>Consulta</h2>
 
-              <div className="filters-grid">
-                <div className="field">
-                  <label>Buscar por nome</label>
-                  <input
-                    type="text"
-                    placeholder="Digite o nome"
-                    value={buscaNome}
-                    onChange={(e) => setBuscaNome(e.target.value)}
-                  />
-                </div>
+          <div className="filters-grid">
+            <div className="field">
+              <label>Buscar por nome</label>
+              <input
+                type="text"
+                placeholder="Digite o nome"
+                value={buscaNome}
+                onChange={(e) => setBuscaNome(e.target.value)}
+              />
+            </div>
 
-                <div className="field">
-                  <label>Buscar por data</label>
-                  <input
-                    type="date"
-                    value={buscaData}
-                    onChange={(e) => setBuscaData(e.target.value)}
-                  />
-                </div>
-              </div>
-            </section>
+            <div className="field">
+              <label>Buscar por data</label>
+              <input
+                type="date"
+                value={buscaData}
+                onChange={(e) => setBuscaData(e.target.value)}
+              />
+            </div>
 
-            <section className="card">
-              <h2>Registros</h2>
+            <div className="field">
+              <label>Buscar por hora</label>
+              <input
+                type="time"
+                value={buscaHora}
+                onChange={(e) => setBuscaHora(e.target.value)}
+              />
+            </div>
+          </div>
 
-              {loadingRegistros ? (
-                <p>Carregando registros...</p>
-              ) : registrosFiltrados.length === 0 ? (
-                <p className="empty">Nenhum registro encontrado.</p>
-              ) : (
-                <div className="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Crachá</th>
-                        <th>Nome</th>
-                        <th>Tipo</th>
-                        <th>Box Acautelou</th>
-                        <th>Entrada</th>
-                        <th>Saída</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {registrosFiltrados.map((item) => (
-                        <tr key={item.id}>
-                          <td>{item.numero_cracha || '-'}</td>
-                          <td>{item.nome}</td>
-                          <td>{item.tipo_pessoa || '-'}</td>
-                          <td>{item.box_acautelou}</td>
-                          <td>{formatarDataHora(item.horario_entrada)}</td>
-                          <td>
-                            {item.horario_saida ? formatarDataHora(item.horario_saida) : '-'}
-                          </td>
-                          <td>
-                            {item.horario_saida ? (
-                              <span className="badge closed">Fechado</span>
-                            ) : (
-                              <span className="badge open">Em aberto</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          </>
-        ) : (
-          <section className="card">
-            <h2>Consulta</h2>
-            <p className="empty">
-              Seu usuário não possui permissão para visualizar a busca e os registros.
-            </p>
-          </section>
-        )}
+          <div className="actions-row">
+            <button className="btn-secondary" onClick={imprimirOuSalvarPDF}>
+              Imprimir / Salvar em PDF
+            </button>
+          </div>
+        </section>
+
+        <section className="card" id="secao-registros">
+          <h2>Registros</h2>
+
+          {loadingRegistros ? (
+            <p>Carregando registros...</p>
+          ) : registrosFiltrados.length === 0 ? (
+            <p className="empty">Nenhum registro encontrado.</p>
+          ) : (
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Crachá</th>
+                    <th>Nome</th>
+                    <th>Entrada</th>
+                    <th>Saída</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {registrosFiltrados.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.numero_cracha || '-'}</td>
+                      <td>{item.nome}</td>
+                      <td>{formatarDataHora(item.horario_entrada)}</td>
+                      <td>
+                        {item.horario_saida ? formatarDataHora(item.horario_saida) : '-'}
+                      </td>
+                      <td>
+                        {item.horario_saida ? (
+                          <span className="badge closed">Fechado</span>
+                        ) : (
+                          <span className="badge open">Em aberto</span>
+                        )}
+                      </td>
+                      <td>
+                        {!item.horario_saida ? (
+                          <button
+                            className="btn-primary"
+                            onClick={() => registrarSaida(item.id)}
+                          >
+                            Registrar saída
+                          </button>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
