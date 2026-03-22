@@ -37,7 +37,9 @@ export default function App() {
 
   const [novoUsuarioEmail, setNovoUsuarioEmail] = useState('');
   const [novoUsuarioSenha, setNovoUsuarioSenha] = useState('');
+  const [emailExcluirUsuario, setEmailExcluirUsuario] = useState('');
   const [criandoUsuario, setCriandoUsuario] = useState(false);
+  const [excluindoUsuario, setExcluindoUsuario] = useState(false);
 
   const [numeroCracha, setNumeroCracha] = useState('');
 
@@ -46,7 +48,8 @@ export default function App() {
   const [buscaDataAberto, setBuscaDataAberto] = useState('');
 
   const [buscaNomeHistorico, setBuscaNomeHistorico] = useState('');
-  const [buscaDataHistorico, setBuscaDataHistorico] = useState('');
+  const [buscaDataInicioHistorico, setBuscaDataInicioHistorico] = useState('');
+  const [buscaDataFimHistorico, setBuscaDataFimHistorico] = useState('');
   const [buscaHoraHistorico, setBuscaHoraHistorico] = useState('');
 
   const [registros, setRegistros] = useState<Registro[]>([]);
@@ -228,6 +231,22 @@ export default function App() {
     await carregarPessoas('');
   }
 
+  async function excluirPessoa(id: string, nome: string) {
+    const confirmar = window.confirm(`Deseja excluir ${nome}?`);
+    if (!confirmar) return;
+
+    const { error } = await supabase.from('pessoas').delete().eq('id', id);
+
+    if (error) {
+      console.error('Erro ao excluir pessoa:', error);
+      alert(`Erro ao excluir pessoa: ${error.message}`);
+      return;
+    }
+
+    alert('Aluno/visitante excluído com sucesso.');
+    await carregarPessoas('');
+  }
+
   async function cadastrarUsuarioInterno() {
     if (!profile?.can_consult) {
       alert('Seu usuário não possui permissão para cadastrar usuários.');
@@ -281,6 +300,60 @@ export default function App() {
       alert('Erro ao cadastrar usuário.');
     } finally {
       setCriandoUsuario(false);
+    }
+  }
+
+  async function excluirUsuarioInterno() {
+    if (!profile?.can_consult) {
+      alert('Seu usuário não possui permissão para excluir usuários.');
+      return;
+    }
+
+    if (!emailExcluirUsuario) {
+      alert('Informe o e-mail do usuário a excluir.');
+      return;
+    }
+
+    try {
+      setExcluindoUsuario(true);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const accessToken = session?.access_token;
+      if (!accessToken) {
+        alert('Sessão inválida.');
+        return;
+      }
+
+      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`;
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          email: emailExcluirUsuario,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result.error || 'Erro ao excluir usuário.');
+        return;
+      }
+
+      alert('Usuário excluído com sucesso.');
+      setEmailExcluirUsuario('');
+    } catch (error) {
+      console.error('Erro ao excluir usuário interno:', error);
+      alert('Erro ao excluir usuário.');
+    } finally {
+      setExcluindoUsuario(false);
     }
   }
 
@@ -396,6 +469,32 @@ export default function App() {
     return `${hh}:${mm}`;
   }
 
+  function montarDescricaoPeriodo() {
+    const inicio = buscaDataInicioHistorico || 'início';
+    const fim = buscaDataFimHistorico || 'hoje';
+
+    if (buscaDataInicioHistorico && buscaDataFimHistorico) {
+      return `Período: ${buscaDataInicioHistorico} até ${buscaDataFimHistorico}`;
+    }
+
+    if (buscaDataInicioHistorico && !buscaDataFimHistorico) {
+      return `Período: ${buscaDataInicioHistorico} até hoje`;
+    }
+
+    if (!buscaDataInicioHistorico && buscaDataFimHistorico) {
+      return `Período: início até ${buscaDataFimHistorico}`;
+    }
+
+    return `Período: ${inicio} até ${fim}`;
+  }
+
+  function dataHoraEmissaoRelatorio() {
+    return new Date().toLocaleString('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+  }
+
   const registrosAbertosFiltrados = useMemo(() => {
     return registros.filter((item) => {
       if (item.horario_saida) return false;
@@ -424,7 +523,10 @@ export default function App() {
         item.nome.toLowerCase().includes(buscaNomeHistorico.trim().toLowerCase());
 
       const dataEntradaLocal = localDateValue(item.horario_entrada);
-      const bateData = !buscaDataHistorico || dataEntradaLocal === buscaDataHistorico;
+      const bateDataInicio =
+        !buscaDataInicioHistorico || dataEntradaLocal >= buscaDataInicioHistorico;
+      const bateDataFim =
+        !buscaDataFimHistorico || dataEntradaLocal <= buscaDataFimHistorico;
 
       const horaEntrada = localHourValue(item.horario_entrada);
       const horaSaida = localHourValue(item.horario_saida);
@@ -433,12 +535,52 @@ export default function App() {
         horaEntrada.includes(buscaHoraHistorico) ||
         horaSaida.includes(buscaHoraHistorico);
 
-      return bateNome && bateData && bateHora;
+      return bateNome && bateDataInicio && bateDataFim && bateHora;
     });
-  }, [registros, buscaNomeHistorico, buscaDataHistorico, buscaHoraHistorico]);
+  }, [
+    registros,
+    buscaNomeHistorico,
+    buscaDataInicioHistorico,
+    buscaDataFimHistorico,
+    buscaHoraHistorico,
+  ]);
 
-  function imprimirOuSalvarPDF() {
+  function imprimirRelatorio() {
     window.print();
+  }
+
+  function baixarCSVHistorico() {
+    if (registrosFiltradosHistorico.length === 0) {
+      alert('Não há dados para exportar.');
+      return;
+    }
+
+    const linhas = [
+      ['Data', 'Nome', 'Crachá', 'Entrada', 'Saída'],
+      ...registrosFiltradosHistorico.map((item) => [
+        localDateValue(item.horario_entrada),
+        item.nome,
+        item.numero_cracha || '',
+        formatarDataHora(item.horario_entrada),
+        item.horario_saida ? formatarDataHora(item.horario_saida) : '',
+      ]),
+    ];
+
+    const csv = linhas
+      .map((linha) =>
+        linha.map((campo) => `"${String(campo).replace(/"/g, '""')}"`).join(';')
+      )
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'relatorio_registros.csv';
+    link.click();
+
+    URL.revokeObjectURL(url);
   }
 
   if (sessionLoading) {
@@ -515,41 +657,69 @@ export default function App() {
         </header>
 
         {podeCadastrarUsuarios && (
-          <section className="card">
-            <h2>Cadastro interno de usuários</h2>
+          <>
+            <section className="card">
+              <h2>Cadastro interno de usuários</h2>
 
-            <div className="form-grid">
-              <div className="field">
-                <label>E-mail do usuário</label>
-                <input
-                  type="email"
-                  placeholder="novo.usuario@dominio.com"
-                  value={novoUsuarioEmail}
-                  onChange={(e) => setNovoUsuarioEmail(e.target.value)}
-                />
+              <div className="form-grid">
+                <div className="field">
+                  <label>E-mail do usuário</label>
+                  <input
+                    type="email"
+                    placeholder="novo.usuario@dominio.com"
+                    value={novoUsuarioEmail}
+                    onChange={(e) => setNovoUsuarioEmail(e.target.value)}
+                  />
+                </div>
+
+                <div className="field">
+                  <label>Senha provisória</label>
+                  <input
+                    type="password"
+                    placeholder="Digite a senha provisória"
+                    value={novoUsuarioSenha}
+                    onChange={(e) => setNovoUsuarioSenha(e.target.value)}
+                  />
+                </div>
               </div>
 
-              <div className="field">
-                <label>Senha provisória</label>
-                <input
-                  type="password"
-                  placeholder="Digite a senha provisória"
-                  value={novoUsuarioSenha}
-                  onChange={(e) => setNovoUsuarioSenha(e.target.value)}
-                />
+              <div className="actions-row">
+                <button
+                  className="btn-primary"
+                  onClick={cadastrarUsuarioInterno}
+                  disabled={criandoUsuario}
+                >
+                  {criandoUsuario ? 'Cadastrando...' : 'Cadastrar usuário'}
+                </button>
               </div>
-            </div>
+            </section>
 
-            <div className="actions-row">
-              <button
-                className="btn-primary"
-                onClick={cadastrarUsuarioInterno}
-                disabled={criandoUsuario}
-              >
-                {criandoUsuario ? 'Cadastrando...' : 'Cadastrar usuário'}
-              </button>
-            </div>
-          </section>
+            <section className="card">
+              <h2>Excluir usuário</h2>
+
+              <div className="form-grid">
+                <div className="field">
+                  <label>E-mail do usuário</label>
+                  <input
+                    type="email"
+                    placeholder="usuario@dominio.com"
+                    value={emailExcluirUsuario}
+                    onChange={(e) => setEmailExcluirUsuario(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="actions-row">
+                <button
+                  className="btn-secondary"
+                  onClick={excluirUsuarioInterno}
+                  disabled={excluindoUsuario}
+                >
+                  {excluindoUsuario ? 'Excluindo...' : 'Excluir usuário'}
+                </button>
+              </div>
+            </section>
+          </>
         )}
 
         <section className="card">
@@ -578,7 +748,7 @@ export default function App() {
         </section>
 
         <section className="card">
-          <h2>Selecionar aluno / visitante</h2>
+          <h2>Excluir aluno / visitante</h2>
 
           <div className="filters-grid">
             <div className="field">
@@ -598,12 +768,6 @@ export default function App() {
             </button>
           </div>
 
-          {pessoaSelecionada && (
-            <p style={{ marginTop: 16 }}>
-              Selecionado: <strong>{pessoaSelecionada.nome}</strong> ({pessoaSelecionada.tipo})
-            </p>
-          )}
-
           <div style={{ marginTop: 16 }}>
             {loadingPessoas ? (
               <p>Carregando pessoas...</p>
@@ -617,6 +781,7 @@ export default function App() {
                       <th>Nome</th>
                       <th>Tipo</th>
                       <th>Ação</th>
+                      <th>Excluir</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -630,6 +795,14 @@ export default function App() {
                             onClick={() => setPessoaSelecionada(pessoa)}
                           >
                             Selecionar
+                          </button>
+                        </td>
+                        <td>
+                          <button
+                            className="btn-secondary"
+                            onClick={() => excluirPessoa(pessoa.id, pessoa.nome)}
+                          >
+                            Excluir
                           </button>
                         </td>
                       </tr>
@@ -761,18 +934,27 @@ export default function App() {
               <label>Buscar por nome</label>
               <input
                 type="text"
-                placeholder="Digite o nome"
+                placeholder="Digite o nome ou deixe em branco para todos"
                 value={buscaNomeHistorico}
                 onChange={(e) => setBuscaNomeHistorico(e.target.value)}
               />
             </div>
 
             <div className="field">
-              <label>Buscar por data</label>
+              <label>Data inicial</label>
               <input
                 type="date"
-                value={buscaDataHistorico}
-                onChange={(e) => setBuscaDataHistorico(e.target.value)}
+                value={buscaDataInicioHistorico}
+                onChange={(e) => setBuscaDataInicioHistorico(e.target.value)}
+              />
+            </div>
+
+            <div className="field">
+              <label>Data final</label>
+              <input
+                type="date"
+                value={buscaDataFimHistorico}
+                onChange={(e) => setBuscaDataFimHistorico(e.target.value)}
               />
             </div>
 
@@ -787,14 +969,34 @@ export default function App() {
           </div>
 
           <div className="actions-row">
-            <button className="btn-secondary" onClick={imprimirOuSalvarPDF}>
-              Imprimir / Salvar em PDF
+            <button className="btn-secondary" onClick={imprimirRelatorio}>
+              Imprimir relatório / Salvar em PDF
+            </button>
+            <button className="btn-secondary" onClick={baixarCSVHistorico}>
+              Baixar planilha
             </button>
           </div>
         </section>
 
-        <section className="card">
-          <h2>Histórico de registros</h2>
+        <section className="card" id="secao-relatorio">
+          <div className="report-header">
+            <h2>Relatório de registros</h2>
+            <p><strong>{montarDescricaoPeriodo()}</strong></p>
+            <p>
+              Filtro por nome:{' '}
+              <strong>{buscaNomeHistorico ? buscaNomeHistorico : 'Todos os alunos / visitantes'}</strong>
+            </p>
+            <p>
+              Filtro por hora:{' '}
+              <strong>{buscaHoraHistorico ? buscaHoraHistorico : 'Todas as horas'}</strong>
+            </p>
+            <p>
+              Emitido em: <strong>{dataHoraEmissaoRelatorio()}</strong>
+            </p>
+            <p>
+              Total de registros: <strong>{registrosFiltradosHistorico.length}</strong>
+            </p>
+          </div>
 
           {loadingRegistros ? (
             <p>Carregando registros...</p>
@@ -805,28 +1007,22 @@ export default function App() {
               <table>
                 <thead>
                   <tr>
-                    <th>Crachá</th>
+                    <th>Data</th>
                     <th>Nome</th>
+                    <th>Crachá</th>
                     <th>Entrada</th>
                     <th>Saída</th>
-                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {registrosFiltradosHistorico.map((item) => (
                     <tr key={item.id}>
-                      <td>{item.numero_cracha || '-'}</td>
+                      <td>{localDateValue(item.horario_entrada)}</td>
                       <td>{item.nome}</td>
+                      <td>{item.numero_cracha || '-'}</td>
                       <td>{formatarDataHora(item.horario_entrada)}</td>
                       <td>
                         {item.horario_saida ? formatarDataHora(item.horario_saida) : '-'}
-                      </td>
-                      <td>
-                        {item.horario_saida ? (
-                          <span className="badge closed">Fechado</span>
-                        ) : (
-                          <span className="badge open">Em aberto</span>
-                        )}
                       </td>
                     </tr>
                   ))}
