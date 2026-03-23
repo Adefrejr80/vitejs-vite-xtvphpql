@@ -10,14 +10,14 @@ type UserProfile = {
 
 type Registro = {
   id: number;
-  user_id: string;
-  pessoa_id: string | null;
+  user_id?: string | null;
+  pessoa_id?: string | null;
   numero_cracha: string | null;
   nome: string;
-  tipo_pessoa: 'Aluno' | 'Visitante' | null;
+  tipo_pessoa?: 'Aluno' | 'Visitante' | null;
   horario_entrada: string;
   horario_saida: string | null;
-  created_at: string;
+  created_at?: string;
 };
 
 type Pessoa = {
@@ -27,90 +27,119 @@ type Pessoa = {
   created_at?: string;
 };
 
+type FiltroAbertos = {
+  nome: string;
+  cracha: string;
+  data: string;
+};
+
+type FiltroHistorico = {
+  nome: string;
+  dataInicio: string;
+  dataFim: string;
+  hora: string;
+};
+
 export default function App() {
-  const [sessionLoading, setSessionLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
 
-  const [novoUsuarioEmail, setNovoUsuarioEmail] = useState('');
-  const [novoUsuarioSenha, setNovoUsuarioSenha] = useState('');
-  const [emailExcluirUsuario, setEmailExcluirUsuario] = useState('');
-  const [criandoUsuario, setCriandoUsuario] = useState(false);
-  const [excluindoUsuario, setExcluindoUsuario] = useState(false);
+  const [nomePessoa, setNomePessoa] = useState('');
+  const [pessoas, setPessoas] = useState<Pessoa[]>([]);
+  const [buscaPessoa, setBuscaPessoa] = useState('');
+  const [loadingPessoas, setLoadingPessoas] = useState(false);
 
-  const [numeroCracha, setNumeroCracha] = useState('');
+  const [registros, setRegistros] = useState<Registro[]>([]);
+  const [loadingRegistros, setLoadingRegistros] = useState(false);
 
   const [buscaNomeAberto, setBuscaNomeAberto] = useState('');
   const [buscaCrachaAberto, setBuscaCrachaAberto] = useState('');
   const [buscaDataAberto, setBuscaDataAberto] = useState('');
+  const [filtroAbertosAplicado, setFiltroAbertosAplicado] = useState<FiltroAbertos>({
+    nome: '',
+    cracha: '',
+    data: '',
+  });
 
   const [buscaNomeHistorico, setBuscaNomeHistorico] = useState('');
   const [buscaDataInicioHistorico, setBuscaDataInicioHistorico] = useState('');
   const [buscaDataFimHistorico, setBuscaDataFimHistorico] = useState('');
   const [buscaHoraHistorico, setBuscaHoraHistorico] = useState('');
+  const [filtroHistoricoAplicado, setFiltroHistoricoAplicado] = useState<FiltroHistorico>({
+    nome: '',
+    dataInicio: '',
+    dataFim: '',
+    hora: '',
+  });
 
-  const [registros, setRegistros] = useState<Registro[]>([]);
-  const [loadingRegistros, setLoadingRegistros] = useState(false);
-
-  const [nomePessoa, setNomePessoa] = useState('');
-  const [pessoas, setPessoas] = useState<Pessoa[]>([]);
-  const [buscaPessoa, setBuscaPessoa] = useState('');
-  const [pessoaSelecionada, setPessoaSelecionada] = useState<Pessoa | null>(null);
-  const [loadingPessoas, setLoadingPessoas] = useState(false);
+  const [modalCrachaAberto, setModalCrachaAberto] = useState(false);
+  const [pessoaModal, setPessoaModal] = useState<Pessoa | null>(null);
+  const [numeroCrachaModal, setNumeroCrachaModal] = useState('');
 
   useEffect(() => {
+    let mounted = true;
+
+    const timeout = window.setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 5000);
+
     const init = async () => {
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        const currentUser = session?.user ?? null;
-        setUserId(currentUser?.id ?? null);
+        const user = session?.user ?? null;
 
-        if (currentUser?.id) {
-          carregarProfile(currentUser.id);
+        if (!mounted) return;
+
+        setUserId(user?.id ?? null);
+
+        if (user?.id) {
+          carregarProfile(user.id);
           carregarPessoas('');
           carregarRegistros();
         }
       } catch (error) {
-        console.error('Erro no init:', error);
+        console.error('Erro ao iniciar app:', error);
       } finally {
-        setSessionLoading(false);
+        if (mounted) setLoading(false);
+        window.clearTimeout(timeout);
       }
     };
 
     init();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      try {
-        const currentUser = session?.user ?? null;
-        setUserId(currentUser?.id ?? null);
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      const user = session?.user ?? null;
 
-        if (currentUser?.id) {
-          carregarProfile(currentUser.id);
-          carregarPessoas('');
-          carregarRegistros();
-        } else {
-          setProfile(null);
-          setRegistros([]);
-          setPessoas([]);
-          setPessoaSelecionada(null);
-        }
-      } catch (error) {
-        console.error('Erro no onAuthStateChange:', error);
-      } finally {
-        setSessionLoading(false);
+      if (event === 'SIGNED_OUT') {
+        setUserId(null);
+        setProfile(null);
+        setPessoas([]);
+        setRegistros([]);
+        setLoading(false);
+        return;
       }
+
+      if (user?.id) {
+        setUserId(user.id);
+        carregarProfile(user.id);
+        carregarPessoas('');
+        carregarRegistros();
+      }
+
+      setLoading(false);
     });
 
     return () => {
-      subscription.unsubscribe();
+      mounted = false;
+      window.clearTimeout(timeout);
+      data.subscription.unsubscribe();
     };
   }, []);
 
@@ -123,20 +152,13 @@ export default function App() {
         .maybeSingle();
 
       if (error) {
-        console.error('Erro ao carregar profile:', error);
-        return null;
+        console.error('Erro ao carregar perfil:', error);
+        return;
       }
 
-      if (!data) {
-        setProfile(null);
-        return null;
-      }
-
-      setProfile(data as UserProfile);
-      return data;
+      setProfile((data as UserProfile) || null);
     } catch (error) {
-      console.error('Erro inesperado ao carregar profile:', error);
-      return null;
+      console.error('Erro inesperado ao carregar perfil:', error);
     }
   }
 
@@ -153,14 +175,13 @@ export default function App() {
       const { data, error } = await query;
 
       if (error) {
-        console.error('Erro ao carregar pessoas:', error);
         alert(`Erro ao carregar pessoas: ${error.message}`);
         return;
       }
 
       setPessoas((data as Pessoa[]) || []);
     } catch (error) {
-      console.error('Erro inesperado ao carregar pessoas:', error);
+      console.error('Erro ao carregar pessoas:', error);
     } finally {
       setLoadingPessoas(false);
     }
@@ -176,27 +197,26 @@ export default function App() {
         .order('horario_entrada', { ascending: false });
 
       if (error) {
-        console.error('Erro ao carregar registros:', error);
         alert(`Erro ao carregar registros: ${error.message}`);
         return;
       }
 
-      setRegistros(data as Registro[]);
+      setRegistros((data as Registro[]) || []);
     } catch (error) {
-      console.error('Erro inesperado ao carregar registros:', error);
+      console.error('Erro ao carregar registros:', error);
     } finally {
       setLoadingRegistros(false);
     }
   }
 
   async function login() {
-    if (!email || !senha) {
+    if (!email.trim() || !senha) {
       alert('Preencha e-mail e senha.');
       return;
     }
 
     const { error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim(),
       password: senha,
     });
 
@@ -206,10 +226,18 @@ export default function App() {
   }
 
   async function sair() {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      alert(`Erro ao sair: ${error.message}`);
+    }
   }
 
   async function cadastrarPessoa(tipo: 'Aluno' | 'Visitante') {
+    if (!profile?.can_consult) {
+      alert('Seu usuário não possui permissão para cadastrar.');
+      return;
+    }
+
     if (!nomePessoa.trim()) {
       alert('Informe o nome.');
       return;
@@ -221,7 +249,6 @@ export default function App() {
     });
 
     if (error) {
-      console.error('Erro ao cadastrar pessoa:', error);
       alert(`Erro ao cadastrar pessoa: ${error.message}`);
       return;
     }
@@ -232,13 +259,17 @@ export default function App() {
   }
 
   async function excluirPessoa(id: string, nome: string) {
+    if (!profile?.can_consult) {
+      alert('Seu usuário não possui permissão para excluir.');
+      return;
+    }
+
     const confirmar = window.confirm(`Deseja excluir ${nome}?`);
     if (!confirmar) return;
 
     const { error } = await supabase.from('pessoas').delete().eq('id', id);
 
     if (error) {
-      console.error('Erro ao excluir pessoa:', error);
       alert(`Erro ao excluir pessoa: ${error.message}`);
       return;
     }
@@ -247,181 +278,71 @@ export default function App() {
     await carregarPessoas('');
   }
 
-  async function cadastrarUsuarioInterno() {
-    if (!profile?.can_consult) {
-      alert('Seu usuário não possui permissão para cadastrar usuários.');
-      return;
-    }
-
-    if (!novoUsuarioEmail || !novoUsuarioSenha) {
-      alert('Preencha e-mail e senha do novo usuário.');
-      return;
-    }
-
-    try {
-      setCriandoUsuario(true);
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const accessToken = session?.access_token;
-      if (!accessToken) {
-        alert('Sessão inválida.');
-        return;
-      }
-
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`;
-
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          email: novoUsuarioEmail,
-          password: novoUsuarioSenha,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        alert(result.error || 'Erro ao cadastrar usuário.');
-        return;
-      }
-
-      alert('Usuário cadastrado com sucesso.');
-      setNovoUsuarioEmail('');
-      setNovoUsuarioSenha('');
-    } catch (error) {
-      console.error('Erro ao cadastrar usuário interno:', error);
-      alert('Erro ao cadastrar usuário.');
-    } finally {
-      setCriandoUsuario(false);
-    }
+  function abrirModalCracha(pessoa: Pessoa) {
+    setPessoaModal(pessoa);
+    setNumeroCrachaModal('');
+    setModalCrachaAberto(true);
   }
 
-  async function excluirUsuarioInterno() {
-    if (!profile?.can_consult) {
-      alert('Seu usuário não possui permissão para excluir usuários.');
-      return;
-    }
-
-    if (!emailExcluirUsuario) {
-      alert('Informe o e-mail do usuário a excluir.');
-      return;
-    }
-
-    try {
-      setExcluindoUsuario(true);
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const accessToken = session?.access_token;
-      if (!accessToken) {
-        alert('Sessão inválida.');
-        return;
-      }
-
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`;
-
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          email: emailExcluirUsuario,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        alert(result.error || 'Erro ao excluir usuário.');
-        return;
-      }
-
-      alert('Usuário excluído com sucesso.');
-      setEmailExcluirUsuario('');
-    } catch (error) {
-      console.error('Erro ao excluir usuário interno:', error);
-      alert('Erro ao excluir usuário.');
-    } finally {
-      setExcluindoUsuario(false);
-    }
+  function fecharModalCracha() {
+    setPessoaModal(null);
+    setNumeroCrachaModal('');
+    setModalCrachaAberto(false);
   }
 
-  function limparFormularioLancamento() {
-    setNumeroCracha('');
-    setPessoaSelecionada(null);
-    setBuscaPessoa('');
-  }
-
-  async function registrarEntrada() {
+  async function confirmarEntradaComCracha() {
     if (!userId) {
       alert('Usuário não autenticado.');
       return;
     }
 
-    if (!pessoaSelecionada) {
-      alert('Selecione um Aluno ou Visitante.');
+    if (!pessoaModal) {
+      alert('Nenhuma pessoa selecionada.');
       return;
     }
 
-    if (!numeroCracha.trim()) {
-      alert('Informe o número do crachá.');
+    if (!/^\d{3}$/.test(numeroCrachaModal)) {
+      alert('O crachá deve conter exatamente 3 dígitos numéricos.');
       return;
     }
 
-    const crachaNormalizado = numeroCracha.trim().toUpperCase();
+    const crachaNormalizado = numeroCrachaModal;
 
-    const { data: abertoNoDia, error: erroBusca } = await supabase
+    const { data: aberto, error: erroBusca } = await supabase
       .from('registros')
-      .select('id, numero_cracha, horario_saida')
+      .select('id')
       .eq('numero_cracha', crachaNormalizado)
       .is('horario_saida', null)
-      .order('horario_entrada', { ascending: false })
       .limit(1);
 
     if (erroBusca) {
-      console.error('erroBusca:', erroBusca);
       alert(`Erro ao verificar registro em aberto: ${erroBusca.message}`);
       return;
     }
 
-    if (abertoNoDia && abertoNoDia.length > 0) {
+    if (aberto && aberto.length > 0) {
       alert('Já existe uma entrada em aberto para esse crachá.');
       return;
     }
 
-    const agora = new Date().toISOString();
-
     const { error } = await supabase.from('registros').insert({
       user_id: userId,
-      pessoa_id: pessoaSelecionada.id,
+      pessoa_id: pessoaModal.id,
       numero_cracha: crachaNormalizado,
-      nome: pessoaSelecionada.nome,
-      tipo_pessoa: pessoaSelecionada.tipo,
-      horario_entrada: agora,
+      nome: pessoaModal.nome,
+      tipo_pessoa: pessoaModal.tipo,
+      horario_entrada: new Date().toISOString(),
       horario_saida: null,
     });
 
     if (error) {
-      console.error('Erro ao salvar entrada:', error);
       alert(`Erro ao salvar entrada: ${error.message}`);
       return;
     }
 
     alert('Entrada registrada com sucesso.');
-    limparFormularioLancamento();
+    fecharModalCracha();
     await carregarRegistros();
-    document.getElementById('secao-registros')?.scrollIntoView({ behavior: 'smooth' });
   }
 
   async function registrarSaida(id: number) {
@@ -434,7 +355,6 @@ export default function App() {
       .select();
 
     if (error) {
-      console.error('Erro ao registrar saída:', error);
       alert(`Erro ao registrar saída: ${error.message}`);
       return;
     }
@@ -453,6 +373,47 @@ export default function App() {
     alert('Saída registrada com sucesso.');
   }
 
+  function executarConsultaAbertos() {
+    setFiltroAbertosAplicado({
+      nome: buscaNomeAberto.trim(),
+      cracha: buscaCrachaAberto.trim(),
+      data: buscaDataAberto,
+    });
+  }
+
+  function limparConsultaAbertos() {
+    setBuscaNomeAberto('');
+    setBuscaCrachaAberto('');
+    setBuscaDataAberto('');
+    setFiltroAbertosAplicado({
+      nome: '',
+      cracha: '',
+      data: '',
+    });
+  }
+
+  function executarConsultaHistorico() {
+    setFiltroHistoricoAplicado({
+      nome: buscaNomeHistorico.trim(),
+      dataInicio: buscaDataInicioHistorico,
+      dataFim: buscaDataFimHistorico,
+      hora: buscaHoraHistorico,
+    });
+  }
+
+  function limparConsultaHistorico() {
+    setBuscaNomeHistorico('');
+    setBuscaDataInicioHistorico('');
+    setBuscaDataFimHistorico('');
+    setBuscaHoraHistorico('');
+    setFiltroHistoricoAplicado({
+      nome: '',
+      dataInicio: '',
+      dataFim: '',
+      hora: '',
+    });
+  }
+
   function localDateValue(valor: string) {
     const d = new Date(valor);
     const year = d.getFullYear();
@@ -469,20 +430,27 @@ export default function App() {
     return `${hh}:${mm}`;
   }
 
+  function formatarDataHora(valor: string) {
+    return new Date(valor).toLocaleString('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+  }
+
   function montarDescricaoPeriodo() {
-    const inicio = buscaDataInicioHistorico || 'início';
-    const fim = buscaDataFimHistorico || 'hoje';
+    const inicio = filtroHistoricoAplicado.dataInicio || 'início';
+    const fim = filtroHistoricoAplicado.dataFim || 'hoje';
 
-    if (buscaDataInicioHistorico && buscaDataFimHistorico) {
-      return `Período: ${buscaDataInicioHistorico} até ${buscaDataFimHistorico}`;
+    if (filtroHistoricoAplicado.dataInicio && filtroHistoricoAplicado.dataFim) {
+      return `Período: ${filtroHistoricoAplicado.dataInicio} até ${filtroHistoricoAplicado.dataFim}`;
     }
 
-    if (buscaDataInicioHistorico && !buscaDataFimHistorico) {
-      return `Período: ${buscaDataInicioHistorico} até hoje`;
+    if (filtroHistoricoAplicado.dataInicio && !filtroHistoricoAplicado.dataFim) {
+      return `Período: ${filtroHistoricoAplicado.dataInicio} até hoje`;
     }
 
-    if (!buscaDataInicioHistorico && buscaDataFimHistorico) {
-      return `Período: início até ${buscaDataFimHistorico}`;
+    if (!filtroHistoricoAplicado.dataInicio && filtroHistoricoAplicado.dataFim) {
+      return `Período: início até ${filtroHistoricoAplicado.dataFim}`;
     }
 
     return `Período: ${inicio} até ${fim}`;
@@ -495,55 +463,63 @@ export default function App() {
     });
   }
 
+  const pessoasFiltradas = useMemo(() => {
+    const termo = buscaPessoa.trim().toLowerCase();
+
+    if (!termo) return pessoas;
+
+    return pessoas.filter((item) =>
+      item.nome.toLowerCase().includes(termo)
+    );
+  }, [pessoas, buscaPessoa]);
+
   const registrosAbertosFiltrados = useMemo(() => {
     return registros.filter((item) => {
       if (item.horario_saida) return false;
 
       const bateNome =
-        !buscaNomeAberto ||
-        item.nome.toLowerCase().includes(buscaNomeAberto.trim().toLowerCase());
+        !filtroAbertosAplicado.nome ||
+        item.nome.toLowerCase().includes(filtroAbertosAplicado.nome.toLowerCase());
 
       const bateCracha =
-        !buscaCrachaAberto ||
+        !filtroAbertosAplicado.cracha ||
         (item.numero_cracha || '')
           .toLowerCase()
-          .includes(buscaCrachaAberto.trim().toLowerCase());
+          .includes(filtroAbertosAplicado.cracha.toLowerCase());
 
       const dataEntrada = localDateValue(item.horario_entrada);
-      const bateData = !buscaDataAberto || dataEntrada === buscaDataAberto;
+      const bateData =
+        !filtroAbertosAplicado.data || dataEntrada === filtroAbertosAplicado.data;
 
       return bateNome && bateCracha && bateData;
     });
-  }, [registros, buscaNomeAberto, buscaCrachaAberto, buscaDataAberto]);
+  }, [registros, filtroAbertosAplicado]);
 
   const registrosFiltradosHistorico = useMemo(() => {
     return registros.filter((item) => {
       const bateNome =
-        !buscaNomeHistorico ||
-        item.nome.toLowerCase().includes(buscaNomeHistorico.trim().toLowerCase());
+        !filtroHistoricoAplicado.nome ||
+        item.nome.toLowerCase().includes(filtroHistoricoAplicado.nome.toLowerCase());
 
-      const dataEntradaLocal = localDateValue(item.horario_entrada);
+      const dataEntrada = localDateValue(item.horario_entrada);
       const bateDataInicio =
-        !buscaDataInicioHistorico || dataEntradaLocal >= buscaDataInicioHistorico;
+        !filtroHistoricoAplicado.dataInicio ||
+        dataEntrada >= filtroHistoricoAplicado.dataInicio;
+
       const bateDataFim =
-        !buscaDataFimHistorico || dataEntradaLocal <= buscaDataFimHistorico;
+        !filtroHistoricoAplicado.dataFim ||
+        dataEntrada <= filtroHistoricoAplicado.dataFim;
 
       const horaEntrada = localHourValue(item.horario_entrada);
       const horaSaida = localHourValue(item.horario_saida);
       const bateHora =
-        !buscaHoraHistorico ||
-        horaEntrada.includes(buscaHoraHistorico) ||
-        horaSaida.includes(buscaHoraHistorico);
+        !filtroHistoricoAplicado.hora ||
+        horaEntrada.includes(filtroHistoricoAplicado.hora) ||
+        horaSaida.includes(filtroHistoricoAplicado.hora);
 
       return bateNome && bateDataInicio && bateDataFim && bateHora;
     });
-  }, [
-    registros,
-    buscaNomeHistorico,
-    buscaDataInicioHistorico,
-    buscaDataFimHistorico,
-    buscaHoraHistorico,
-  ]);
+  }, [registros, filtroHistoricoAplicado]);
 
   function imprimirRelatorio() {
     window.print();
@@ -583,7 +559,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  if (sessionLoading) {
+  if (loading) {
     return (
       <div className="page center-screen">
         <div className="card auth-card">
@@ -600,7 +576,10 @@ export default function App() {
         <div className="auth-wrapper">
           <div className="brand-panel">
             <h1>Controle de Entrada e Saída</h1>
-            <p>Sistema privado para acesso interno.</p>
+            <p>
+              Sistema interno para cadastro de pessoas, controle de entrada e saída,
+              consulta de registros e emissão de relatórios.
+            </p>
           </div>
 
           <div className="card auth-card">
@@ -637,7 +616,7 @@ export default function App() {
     );
   }
 
-  const podeCadastrarUsuarios = !!profile?.can_consult;
+  const podeGerenciar = profile?.can_consult === true;
 
   return (
     <div className="page app-bg">
@@ -646,8 +625,8 @@ export default function App() {
           <div>
             <h1>Controle de Entrada e Saída</h1>
             <p className="subtitle">
-              Usuário: {profile?.email || 'sem e-mail'} • Perfil:{' '}
-              {podeCadastrarUsuarios ? 'gerente' : 'usuário'}
+              Usuário: {profile?.email || email || 'autenticado'} • Perfil:{' '}
+              {podeGerenciar ? 'gestão' : 'consulta/operação'}
             </p>
           </div>
 
@@ -656,66 +635,29 @@ export default function App() {
           </button>
         </header>
 
-        {podeCadastrarUsuarios && (
+        {podeGerenciar && (
           <>
             <section className="card">
-              <h2>Cadastro interno de usuários</h2>
+              <h2>Cadastro de aluno / visitante</h2>
 
               <div className="form-grid">
                 <div className="field">
-                  <label>E-mail do usuário</label>
+                  <label>Nome</label>
                   <input
-                    type="email"
-                    placeholder="novo.usuario@dominio.com"
-                    value={novoUsuarioEmail}
-                    onChange={(e) => setNovoUsuarioEmail(e.target.value)}
-                  />
-                </div>
-
-                <div className="field">
-                  <label>Senha provisória</label>
-                  <input
-                    type="password"
-                    placeholder="Digite a senha provisória"
-                    value={novoUsuarioSenha}
-                    onChange={(e) => setNovoUsuarioSenha(e.target.value)}
+                    type="text"
+                    placeholder="Digite o nome"
+                    value={nomePessoa}
+                    onChange={(e) => setNomePessoa(e.target.value)}
                   />
                 </div>
               </div>
 
               <div className="actions-row">
-                <button
-                  className="btn-primary"
-                  onClick={cadastrarUsuarioInterno}
-                  disabled={criandoUsuario}
-                >
-                  {criandoUsuario ? 'Cadastrando...' : 'Cadastrar usuário'}
+                <button className="btn-primary" onClick={() => cadastrarPessoa('Aluno')}>
+                  Cadastrar aluno
                 </button>
-              </div>
-            </section>
-
-            <section className="card">
-              <h2>Excluir usuário</h2>
-
-              <div className="form-grid">
-                <div className="field">
-                  <label>E-mail do usuário</label>
-                  <input
-                    type="email"
-                    placeholder="usuario@dominio.com"
-                    value={emailExcluirUsuario}
-                    onChange={(e) => setEmailExcluirUsuario(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="actions-row">
-                <button
-                  className="btn-secondary"
-                  onClick={excluirUsuarioInterno}
-                  disabled={excluindoUsuario}
-                >
-                  {excluindoUsuario ? 'Excluindo...' : 'Excluir usuário'}
+                <button className="btn-secondary" onClick={() => cadastrarPessoa('Visitante')}>
+                  Cadastrar visitante
                 </button>
               </div>
             </section>
@@ -723,32 +665,7 @@ export default function App() {
         )}
 
         <section className="card">
-          <h2>Cadastro de aluno / visitante</h2>
-
-          <div className="form-grid">
-            <div className="field">
-              <label>Nome</label>
-              <input
-                type="text"
-                placeholder="Digite o nome"
-                value={nomePessoa}
-                onChange={(e) => setNomePessoa(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="actions-row">
-            <button className="btn-primary" onClick={() => cadastrarPessoa('Aluno')}>
-              Cadastrar aluno
-            </button>
-            <button className="btn-secondary" onClick={() => cadastrarPessoa('Visitante')}>
-              Cadastrar visitante
-            </button>
-          </div>
-        </section>
-
-        <section className="card">
-          <h2>Excluir aluno / visitante</h2>
+          <h2>{podeGerenciar ? 'Selecionar / excluir aluno ou visitante' : 'Selecionar usuário para lançar crachá'}</h2>
 
           <div className="filters-grid">
             <div className="field">
@@ -771,7 +688,7 @@ export default function App() {
           <div style={{ marginTop: 16 }}>
             {loadingPessoas ? (
               <p>Carregando pessoas...</p>
-            ) : pessoas.length === 0 ? (
+            ) : pessoasFiltradas.length === 0 ? (
               <p className="empty">Nenhuma pessoa encontrada.</p>
             ) : (
               <div className="table-wrapper">
@@ -781,67 +698,38 @@ export default function App() {
                       <th>Nome</th>
                       <th>Tipo</th>
                       <th>Ação</th>
-                      <th>Excluir</th>
+                      {podeGerenciar && <th>Excluir</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {pessoas.map((pessoa) => (
+                    {pessoasFiltradas.map((pessoa) => (
                       <tr key={pessoa.id}>
                         <td>{pessoa.nome}</td>
                         <td>{pessoa.tipo}</td>
                         <td>
                           <button
                             className="btn-secondary"
-                            onClick={() => setPessoaSelecionada(pessoa)}
+                            onClick={() => abrirModalCracha(pessoa)}
                           >
                             Selecionar
                           </button>
                         </td>
-                        <td>
-                          <button
-                            className="btn-secondary"
-                            onClick={() => excluirPessoa(pessoa.id, pessoa.nome)}
-                          >
-                            Excluir
-                          </button>
-                        </td>
+                        {podeGerenciar && (
+                          <td>
+                            <button
+                              className="btn-secondary"
+                              onClick={() => excluirPessoa(pessoa.id, pessoa.nome)}
+                            >
+                              Excluir
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-          </div>
-        </section>
-
-        <section className="card">
-          <h2>Lançamento de entrada</h2>
-
-          {pessoaSelecionada && (
-            <p style={{ marginBottom: 16 }}>
-              Selecionado: <strong>{pessoaSelecionada.nome}</strong> ({pessoaSelecionada.tipo})
-            </p>
-          )}
-
-          <div className="form-grid">
-            <div className="field">
-              <label>N° do Crachá</label>
-              <input
-                type="text"
-                placeholder="Digite o número do crachá"
-                value={numeroCracha}
-                onChange={(e) => setNumeroCracha(e.target.value.toUpperCase())}
-              />
-            </div>
-          </div>
-
-          <div className="actions-row">
-            <button className="btn-primary" onClick={registrarEntrada}>
-              Registrar entrada
-            </button>
-            <button className="btn-secondary" onClick={limparFormularioLancamento}>
-              Limpar
-            </button>
           </div>
         </section>
 
@@ -877,6 +765,15 @@ export default function App() {
                 onChange={(e) => setBuscaDataAberto(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="actions-row">
+            <button className="btn-primary" onClick={executarConsultaAbertos}>
+              Executar consulta
+            </button>
+            <button className="btn-secondary" onClick={limparConsultaAbertos}>
+              Limpar consulta
+            </button>
           </div>
         </section>
 
@@ -926,121 +823,166 @@ export default function App() {
           )}
         </section>
 
-        <section className="card">
-          <h2>Consulta do histórico</h2>
+        {podeGerenciar && (
+          <>
+            <section className="card">
+              <h2>Consulta do histórico</h2>
 
-          <div className="filters-grid">
-            <div className="field">
-              <label>Buscar por nome</label>
-              <input
-                type="text"
-                placeholder="Digite o nome ou deixe em branco para todos"
-                value={buscaNomeHistorico}
-                onChange={(e) => setBuscaNomeHistorico(e.target.value)}
-              />
-            </div>
+              <div className="filters-grid">
+                <div className="field">
+                  <label>Buscar por nome</label>
+                  <input
+                    type="text"
+                    placeholder="Digite o nome ou deixe em branco para todos"
+                    value={buscaNomeHistorico}
+                    onChange={(e) => setBuscaNomeHistorico(e.target.value)}
+                  />
+                </div>
 
-            <div className="field">
-              <label>Data inicial</label>
-              <input
-                type="date"
-                value={buscaDataInicioHistorico}
-                onChange={(e) => setBuscaDataInicioHistorico(e.target.value)}
-              />
-            </div>
+                <div className="field">
+                  <label>Data inicial</label>
+                  <input
+                    type="date"
+                    value={buscaDataInicioHistorico}
+                    onChange={(e) => setBuscaDataInicioHistorico(e.target.value)}
+                  />
+                </div>
 
-            <div className="field">
-              <label>Data final</label>
-              <input
-                type="date"
-                value={buscaDataFimHistorico}
-                onChange={(e) => setBuscaDataFimHistorico(e.target.value)}
-              />
-            </div>
+                <div className="field">
+                  <label>Data final</label>
+                  <input
+                    type="date"
+                    value={buscaDataFimHistorico}
+                    onChange={(e) => setBuscaDataFimHistorico(e.target.value)}
+                  />
+                </div>
 
-            <div className="field">
-              <label>Buscar por hora</label>
-              <input
-                type="time"
-                value={buscaHoraHistorico}
-                onChange={(e) => setBuscaHoraHistorico(e.target.value)}
-              />
+                <div className="field">
+                  <label>Buscar por hora</label>
+                  <input
+                    type="time"
+                    value={buscaHoraHistorico}
+                    onChange={(e) => setBuscaHoraHistorico(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="actions-row">
+                <button className="btn-primary" onClick={executarConsultaHistorico}>
+                  Executar consulta
+                </button>
+                <button className="btn-secondary" onClick={limparConsultaHistorico}>
+                  Limpar consulta
+                </button>
+                <button className="btn-secondary" onClick={imprimirRelatorio}>
+                  Imprimir relatório / Salvar em PDF
+                </button>
+                <button className="btn-secondary" onClick={baixarCSVHistorico}>
+                  Baixar planilha
+                </button>
+              </div>
+            </section>
+
+            <section className="card" id="secao-relatorio">
+              <div className="report-header">
+                <h2>Relatório de registros</h2>
+                <p><strong>{montarDescricaoPeriodo()}</strong></p>
+                <p>
+                  Filtro por nome:{' '}
+                  <strong>
+                    {filtroHistoricoAplicado.nome
+                      ? filtroHistoricoAplicado.nome
+                      : 'Todos os alunos / visitantes'}
+                  </strong>
+                </p>
+                <p>
+                  Filtro por hora:{' '}
+                  <strong>
+                    {filtroHistoricoAplicado.hora
+                      ? filtroHistoricoAplicado.hora
+                      : 'Todas as horas'}
+                  </strong>
+                </p>
+                <p>
+                  Emitido em: <strong>{dataHoraEmissaoRelatorio()}</strong>
+                </p>
+                <p>
+                  Total de registros: <strong>{registrosFiltradosHistorico.length}</strong>
+                </p>
+              </div>
+
+              {loadingRegistros ? (
+                <p>Carregando registros...</p>
+              ) : registrosFiltradosHistorico.length === 0 ? (
+                <p className="empty">Nenhum registro encontrado.</p>
+              ) : (
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Data</th>
+                        <th>Nome</th>
+                        <th>Crachá</th>
+                        <th>Entrada</th>
+                        <th>Saída</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {registrosFiltradosHistorico.map((item) => (
+                        <tr key={item.id}>
+                          <td>{localDateValue(item.horario_entrada)}</td>
+                          <td>{item.nome}</td>
+                          <td>{item.numero_cracha || '-'}</td>
+                          <td>{formatarDataHora(item.horario_entrada)}</td>
+                          <td>
+                            {item.horario_saida ? formatarDataHora(item.horario_saida) : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        {modalCrachaAberto && (
+          <div className="modal-overlay">
+            <div className="card auth-card modal-card">
+              <h2>Lançar entrada</h2>
+
+              <p style={{ marginBottom: 16 }}>
+                Pessoa selecionada: <strong>{pessoaModal?.nome}</strong>
+              </p>
+
+              <div className="field">
+                <label>Digite o número do crachá</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={3}
+                  placeholder="Ex.: 123"
+                  value={numeroCrachaModal}
+                  onChange={(e) =>
+                    setNumeroCrachaModal(e.target.value.replace(/\D/g, '').slice(0, 3))
+                  }
+                />
+                <small>Obrigatório. Apenas 3 dígitos.</small>
+              </div>
+
+              <div className="auth-actions">
+                <button className="btn-primary" onClick={confirmarEntradaComCracha}>
+                  Confirmar entrada
+                </button>
+                <button className="btn-secondary" onClick={fecharModalCracha}>
+                  Cancelar
+                </button>
+              </div>
             </div>
           </div>
-
-          <div className="actions-row">
-            <button className="btn-secondary" onClick={imprimirRelatorio}>
-              Imprimir relatório / Salvar em PDF
-            </button>
-            <button className="btn-secondary" onClick={baixarCSVHistorico}>
-              Baixar planilha
-            </button>
-          </div>
-        </section>
-
-        <section className="card" id="secao-relatorio">
-          <div className="report-header">
-            <h2>Relatório de registros</h2>
-            <p><strong>{montarDescricaoPeriodo()}</strong></p>
-            <p>
-              Filtro por nome:{' '}
-              <strong>{buscaNomeHistorico ? buscaNomeHistorico : 'Todos os alunos / visitantes'}</strong>
-            </p>
-            <p>
-              Filtro por hora:{' '}
-              <strong>{buscaHoraHistorico ? buscaHoraHistorico : 'Todas as horas'}</strong>
-            </p>
-            <p>
-              Emitido em: <strong>{dataHoraEmissaoRelatorio()}</strong>
-            </p>
-            <p>
-              Total de registros: <strong>{registrosFiltradosHistorico.length}</strong>
-            </p>
-          </div>
-
-          {loadingRegistros ? (
-            <p>Carregando registros...</p>
-          ) : registrosFiltradosHistorico.length === 0 ? (
-            <p className="empty">Nenhum registro encontrado.</p>
-          ) : (
-            <div className="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Data</th>
-                    <th>Nome</th>
-                    <th>Crachá</th>
-                    <th>Entrada</th>
-                    <th>Saída</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {registrosFiltradosHistorico.map((item) => (
-                    <tr key={item.id}>
-                      <td>{localDateValue(item.horario_entrada)}</td>
-                      <td>{item.nome}</td>
-                      <td>{item.numero_cracha || '-'}</td>
-                      <td>{formatarDataHora(item.horario_entrada)}</td>
-                      <td>
-                        {item.horario_saida ? formatarDataHora(item.horario_saida) : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        )}
       </div>
     </div>
   );
-}
-
-function formatarDataHora(valor: string) {
-  const data = new Date(valor);
-
-  return data.toLocaleString('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  });
 }
